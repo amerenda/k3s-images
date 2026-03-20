@@ -129,6 +129,18 @@ export function useUpdateAgent() {
   })
 }
 
+export function useDeleteAgent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (slot: number) => {
+      const r = await fetch(`/api/agents/${slot}`, { method: 'DELETE' })
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`)
+      return r.json()
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
+  })
+}
+
 export function useStartAgent() {
   const qc = useQueryClient()
   return useMutation({
