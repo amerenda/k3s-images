@@ -28,6 +28,13 @@ export interface AgentBehavior {
   max_post_length: number
   auto_reply: boolean
   auto_like: boolean
+  reply_to_own_threads: boolean
+  post_jitter_pct: number
+  karma_throttle: boolean
+  karma_throttle_threshold: number
+  karma_throttle_multiplier: number
+  target_submolts: string[]
+  auto_dm_approve: boolean
 }
 
 export interface AgentState {
@@ -35,6 +42,7 @@ export interface AgentState {
   karma: number
   last_heartbeat: string | null
   last_post_time: number
+  next_post_time: number
   pending_dm_requests: string[]
 }
 

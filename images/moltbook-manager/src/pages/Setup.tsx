@@ -18,6 +18,13 @@ function AgentSetupPanel({ agent, models }: { agent: Agent; models: { name: stri
     max_post_length: agent.behavior.max_post_length,
     auto_reply: agent.behavior.auto_reply,
     auto_like: agent.behavior.auto_like,
+    reply_to_own_threads: agent.behavior.reply_to_own_threads,
+    post_jitter_pct: agent.behavior.post_jitter_pct,
+    karma_throttle: agent.behavior.karma_throttle,
+    karma_throttle_threshold: agent.behavior.karma_throttle_threshold,
+    karma_throttle_multiplier: agent.behavior.karma_throttle_multiplier,
+    target_submolts: agent.behavior.target_submolts.join(', '),
+    auto_dm_approve: agent.behavior.auto_dm_approve,
   })
   const [saved, setSaved] = useState(false)
 
@@ -41,6 +48,13 @@ function AgentSetupPanel({ agent, models }: { agent: Agent; models: { name: stri
           max_post_length: form.max_post_length,
           auto_reply: form.auto_reply,
           auto_like: form.auto_like,
+          reply_to_own_threads: form.reply_to_own_threads,
+          post_jitter_pct: form.post_jitter_pct,
+          karma_throttle: form.karma_throttle,
+          karma_throttle_threshold: form.karma_throttle_threshold,
+          karma_throttle_multiplier: form.karma_throttle_multiplier,
+          target_submolts: form.target_submolts.split(',').map((s: string) => s.trim()).filter(Boolean),
+          auto_dm_approve: form.auto_dm_approve,
         },
       },
     })
@@ -166,6 +180,91 @@ function AgentSetupPanel({ agent, models }: { agent: Agent; models: { name: stri
           Auto-like
         </label>
       </div>
+
+      {/* Post jitter */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">
+          Post timing jitter ({form.post_jitter_pct}%)
+        </label>
+        <input
+          type="range"
+          min={0} max={50} step={5}
+          value={form.post_jitter_pct}
+          onChange={e => setForm(f => ({ ...f, post_jitter_pct: +e.target.value }))}
+          className="w-full accent-brand-500"
+        />
+        <p className="text-xs text-gray-600 mt-0.5">
+          Randomizes post interval ±{form.post_jitter_pct}% so timing looks natural
+        </p>
+      </div>
+
+      {/* Target submolts */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Target submolts (comma separated)</label>
+        <input
+          value={form.target_submolts}
+          onChange={e => setForm(f => ({ ...f, target_submolts: e.target.value }))}
+          placeholder="e.g. technology, science (leave blank to use topics)"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-brand-500"
+        />
+      </div>
+
+      {/* More behavior toggles */}
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.reply_to_own_threads}
+            onChange={e => setForm(f => ({ ...f, reply_to_own_threads: e.target.checked }))}
+            className="accent-brand-500"
+          />
+          Reply to own threads
+        </label>
+        <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.auto_dm_approve}
+            onChange={e => setForm(f => ({ ...f, auto_dm_approve: e.target.checked }))}
+            className="accent-brand-500"
+          />
+          Auto-approve DMs
+        </label>
+        <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.karma_throttle}
+            onChange={e => setForm(f => ({ ...f, karma_throttle: e.target.checked }))}
+            className="accent-brand-500"
+          />
+          Karma throttle
+        </label>
+      </div>
+
+      {/* Karma throttle settings — only show when enabled */}
+      {form.karma_throttle && (
+        <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-gray-700">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Throttle below karma</label>
+            <input
+              type="number"
+              min={0}
+              value={form.karma_throttle_threshold}
+              onChange={e => setForm(f => ({ ...f, karma_throttle_threshold: +e.target.value }))}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Interval multiplier</label>
+            <input
+              type="number"
+              min={1} max={10} step={0.5}
+              value={form.karma_throttle_multiplier}
+              onChange={e => setForm(f => ({ ...f, karma_throttle_multiplier: +e.target.value }))}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-brand-500"
+            />
+          </div>
+        </div>
+      )}
 
       <button
         onClick={handleSave}
