@@ -8,41 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build and Push
-    runs-on: arc-runner-set-k3s-images
-    strategy:
-      matrix:
-        include:
-          # Add a row here for each image directory, e.g.:
-          # - image: my-image
-          #   context: ./my-image
-      fail-fast: false
+  # Placeholder job — no generic images defined yet.
+  # Each image has its own dedicated workflow (e.g. moltbook-manager-build.yaml).
+  # Add image-specific workflows following that pattern.
+  noop:
+    name: No generic images to build
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU (multi-platform builds)
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            amerenda/k3s-images:${{ matrix.image }}
-            amerenda/k3s-images:${{ matrix.image }}-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - run: echo "No images defined in generic build.yaml — see per-image workflows"
