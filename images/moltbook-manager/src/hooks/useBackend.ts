@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Agent, GpuInfo, OllamaModel, StackStatus, ActivityEntry, VramCheck } from '../types'
+import type { Agent, GpuInfo, OllamaModel, ActivityEntry, VramCheck } from '../types'
 
-const BASE = ''  // nginx proxies /api and /control to controller
+const BASE = ''  // nginx proxies /api to llm-manager backend
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path)
@@ -37,43 +37,6 @@ export function useHealth() {
     queryFn: () => get<{ ok: boolean; backend: string }>('/health'),
     refetchInterval: 10_000,
     retry: 0,
-  })
-}
-
-// ── Stack ─────────────────────────────────────────────────────────────────────
-
-export function useStackStatus() {
-  return useQuery({
-    queryKey: ['stack'],
-    queryFn: () => get<StackStatus>('/control/status'),
-    refetchInterval: 5_000,
-  })
-}
-
-export function useStartStack() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => post('/control/start'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['stack'] }),
-  })
-}
-
-export function useStopStack() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => post('/control/stop'),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['stack'] })
-      qc.invalidateQueries({ queryKey: ['agents'] })
-    },
-  })
-}
-
-export function useRestartStack() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => post('/control/restart'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['stack'] }),
   })
 }
 

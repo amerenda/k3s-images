@@ -1,7 +1,6 @@
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink } from 'react-router-dom'
 import { LayoutDashboard, Settings, UserPlus, Loader2, WifiOff } from 'lucide-react'
 import { useHealth } from './hooks/useBackend'
-import { BackendOffline } from './components/BackendOffline'
 import { Dashboard } from './pages/Dashboard'
 import { Setup } from './pages/Setup'
 import { Register } from './pages/Register'
@@ -58,21 +57,17 @@ export default function App() {
     )
   }
 
-  // Controller itself is unreachable (pod down or network issue)
-  if (health.isError && (health.error as Error).message.includes('fetch')) {
+  // Backend unreachable
+  if (health.isError) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <WifiOff className="w-8 h-8 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400 text-sm">Cannot reach controller</p>
+          <p className="text-gray-400 text-sm">Cannot reach backend</p>
+          <p className="text-gray-600 text-xs mt-1">Check that llm-manager is running</p>
         </div>
       </div>
     )
-  }
-
-  // Backend is down (503 from controller)
-  if (health.isError) {
-    return <BackendOffline />
   }
 
   return (

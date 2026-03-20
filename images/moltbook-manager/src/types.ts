@@ -63,12 +63,6 @@ export interface Agent {
   state: AgentState
 }
 
-export interface StackStatus {
-  running: boolean
-  services: { name: string; status: string; id: string }[]
-  error?: string
-}
-
 export interface ActivityEntry {
   ts: string
   action: string
