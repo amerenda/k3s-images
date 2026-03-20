@@ -1,7 +1,33 @@
 import { useState } from 'react'
-import { Save, Plus, Trash2, Power, Info, AlertTriangle } from 'lucide-react'
+import { Save, Plus, Trash2, Power, Info, AlertTriangle, HelpCircle } from 'lucide-react'
 import { useAgents, useModels, useUpdateAgent, useDeleteAgent, useGpu } from '../hooks/useBackend'
 import type { Agent } from '../types'
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+
+function Tip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        className="text-gray-600 hover:text-gray-400 transition-colors ml-1"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onClick={e => { e.preventDefault(); setOpen(o => !o) }}
+        aria-label="Help"
+      >
+        <HelpCircle className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-60 bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-xs text-gray-300 shadow-xl pointer-events-none block">
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-700" />
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
 
 // ── VRAM overlap helper ───────────────────────────────────────────────────────
 
@@ -10,11 +36,11 @@ function maxConcurrentVram(agents: Agent[], modelVram: Record<string, number>): 
   if (active.length === 0) return 0
   let max = 0
   for (let h = 0; h < 24; h++) {
-    const s = active.filter(a => {
-      const { active_hours_start: start, active_hours_end: end } = a.schedule
-      return start <= end ? h >= start && h < end : h >= start || h < end
+    const concurrent = active.filter(a => {
+      const { active_hours_start: s, active_hours_end: e } = a.schedule
+      return s <= e ? h >= s && h < e : h >= s || h < e
     })
-    const vram = s.reduce((sum, a) => sum + (modelVram[a.model] ?? 4.5), 0)
+    const vram = concurrent.reduce((sum, a) => sum + (modelVram[a.model] ?? 4.5), 0)
     if (vram > max) max = vram
   }
   return max
@@ -134,7 +160,8 @@ function AgentSetupPanel({
 
   return (
     <div className="space-y-4">
-      {/* Active toggle + delete row */}
+
+      {/* Active toggle + delete */}
       <div className="flex items-center justify-between">
         <button
           onClick={handleToggleActive}
@@ -148,7 +175,6 @@ function AgentSetupPanel({
           <Power className="w-4 h-4" />
           {agent.enabled ? 'Active' : 'Inactive'}
         </button>
-
         <button
           onClick={() => setConfirmDelete(true)}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-400 transition-colors px-2 py-1.5"
@@ -168,7 +194,10 @@ function AgentSetupPanel({
 
       {/* Model */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Model</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Model
+          <Tip text="Which Ollama model drives this agent. Larger models write better but need more VRAM and are slower to respond." />
+        </label>
         <select
           value={form.model}
           onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
@@ -184,7 +213,10 @@ function AgentSetupPanel({
 
       {/* Name */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Moltbook username</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Moltbook username
+          <Tip text="The agent's display name on Moltbook. Pick carefully — it cannot be changed after registration." />
+        </label>
         <input
           value={form.name}
           onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -194,7 +226,10 @@ function AgentSetupPanel({
 
       {/* Bio */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Bio</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Bio
+          <Tip text="Short description shown on the agent's Moltbook profile page." />
+        </label>
         <textarea
           value={form.description}
           onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -205,7 +240,10 @@ function AgentSetupPanel({
 
       {/* Tone */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tone / personality</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Tone / personality
+          <Tip text="Freeform style instruction fed directly to the LLM system prompt. Shapes how the agent writes — e.g. 'dry wit, concise, slightly cynical'." />
+        </label>
         <input
           value={form.tone}
           onChange={e => setForm(f => ({ ...f, tone: e.target.value }))}
@@ -216,7 +254,10 @@ function AgentSetupPanel({
 
       {/* Topics */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Topics (comma separated)</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Topics
+          <Tip text="Subjects the agent posts about. Also used as the default submolt when no target submolts are set." />
+        </label>
         <input
           value={form.topics}
           onChange={e => setForm(f => ({ ...f, topics: e.target.value }))}
@@ -228,7 +269,10 @@ function AgentSetupPanel({
       {/* Schedule */}
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Post every (min)</label>
+          <label className="flex items-center text-xs text-gray-500 mb-1">
+            Post every (min)
+            <Tip text="Minimum time between autonomous posts. Actual timing also varies by the jitter setting below." />
+          </label>
           <input
             type="number" min={30}
             value={form.post_interval_minutes}
@@ -237,7 +281,10 @@ function AgentSetupPanel({
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Active from (h)</label>
+          <label className="flex items-center text-xs text-gray-500 mb-1">
+            Active from (h)
+            <Tip text="Hour the agent starts being allowed to post (24h clock, local time)." />
+          </label>
           <input
             type="number" min={0} max={23}
             value={form.active_hours_start}
@@ -246,7 +293,10 @@ function AgentSetupPanel({
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Active until (h)</label>
+          <label className="flex items-center text-xs text-gray-500 mb-1">
+            Active until (h)
+            <Tip text="Hour the agent stops posting (24h clock, local time). Set end earlier than start for overnight windows." />
+          </label>
           <input
             type="number" min={1} max={24}
             value={form.active_hours_end}
@@ -257,25 +307,28 @@ function AgentSetupPanel({
       </div>
 
       {/* Behavior toggles row 1 */}
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-wrap">
         <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
           <input type="checkbox" checked={form.auto_reply}
             onChange={e => setForm(f => ({ ...f, auto_reply: e.target.checked }))}
             className="accent-brand-500" />
           Auto-reply
+          <Tip text="Replies to comments other users leave on this agent's posts. Each heartbeat processes up to 5 new comments." />
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
           <input type="checkbox" checked={form.auto_like}
             onChange={e => setForm(f => ({ ...f, auto_like: e.target.checked }))}
             className="accent-brand-500" />
           Auto-like
+          <Tip text="Upvotes posts encountered while browsing the feed. Helps build karma and presence without posting." />
         </label>
       </div>
 
       {/* Post jitter */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">
+        <label className="flex items-center text-xs text-gray-500 mb-1">
           Post timing jitter ({form.post_jitter_pct}%)
+          <Tip text="Adds a random offset to the post interval each cycle. At 20%, a 60-min interval becomes anywhere from 48–72 min. Prevents agents from posting on a robotic fixed clock." />
         </label>
         <input
           type="range" min={0} max={50} step={5}
@@ -284,13 +337,16 @@ function AgentSetupPanel({
           className="w-full accent-brand-500"
         />
         <p className="text-xs text-gray-600 mt-0.5">
-          Randomizes post interval ±{form.post_jitter_pct}% so timing looks natural
+          Randomizes post interval ±{form.post_jitter_pct}%
         </p>
       </div>
 
       {/* Target submolts */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Target submolts (comma separated)</label>
+        <label className="flex items-center text-xs text-gray-500 mb-1">
+          Target submolts
+          <Tip text="Pin posts to specific communities (e.g. 'technology, science'). If blank, the agent derives a submolt from its topics list. One is chosen at random each post." />
+        </label>
         <input
           value={form.target_submolts}
           onChange={e => setForm(f => ({ ...f, target_submolts: e.target.value }))}
@@ -305,19 +361,22 @@ function AgentSetupPanel({
           <input type="checkbox" checked={form.reply_to_own_threads}
             onChange={e => setForm(f => ({ ...f, reply_to_own_threads: e.target.checked }))}
             className="accent-brand-500" />
-          Reply to own threads
+          Extend threads
+          <Tip text="After heartbeat, occasionally adds a follow-up comment to this agent's own recent posts — continuing the thread with a new thought. Other agents (and humans) on the platform may then reply to that continuation." />
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
           <input type="checkbox" checked={form.auto_dm_approve}
             onChange={e => setForm(f => ({ ...f, auto_dm_approve: e.target.checked }))}
             className="accent-brand-500" />
           Auto-approve DMs
+          <Tip text="Automatically accepts incoming DM requests without manual approval. Turn off if you want to vet who can DM this agent." />
         </label>
         <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
           <input type="checkbox" checked={form.karma_throttle}
             onChange={e => setForm(f => ({ ...f, karma_throttle: e.target.checked }))}
             className="accent-brand-500" />
           Karma throttle
+          <Tip text="Automatically slows down posting when the agent's karma drops below a threshold. Useful for laying low after a bad run without disabling the agent entirely." />
         </label>
       </div>
 
@@ -325,7 +384,10 @@ function AgentSetupPanel({
       {form.karma_throttle && (
         <div className="grid grid-cols-2 gap-3 pl-4 border-l-2 border-gray-700">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Throttle below karma</label>
+            <label className="flex items-center text-xs text-gray-500 mb-1">
+              Throttle below karma
+              <Tip text="If the agent's karma is below this number, the post interval is multiplied. The agent still posts — just less often." />
+            </label>
             <input
               type="number" min={0}
               value={form.karma_throttle_threshold}
@@ -334,7 +396,10 @@ function AgentSetupPanel({
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Interval multiplier</label>
+            <label className="flex items-center text-xs text-gray-500 mb-1">
+              Interval multiplier
+              <Tip text="How much to stretch the post interval when karma is low. 2× means half as often, 3× means one-third as often." />
+            </label>
             <input
               type="number" min={1} max={10} step={0.5}
               value={form.karma_throttle_multiplier}
@@ -377,7 +442,9 @@ function ScheduleVramWarning({ agents, models }: {
 
   return (
     <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-      fits ? 'bg-gray-800/50 text-gray-500' : 'bg-amber-950/40 border border-amber-800/50 text-amber-300'
+      fits
+        ? 'bg-gray-800/50 text-gray-500'
+        : 'bg-amber-950/40 border border-amber-800/50 text-amber-300'
     }`}>
       {fits
         ? <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
@@ -391,6 +458,10 @@ function ScheduleVramWarning({ agents, models }: {
 }
 
 // ── Main Setup page ───────────────────────────────────────────────────────────
+
+function tabLabel(agent: Agent): string {
+  return agent.persona.name !== 'Agent' ? agent.persona.name : `Agent ${agent.slot}`
+}
 
 function isCreated(a: Agent) {
   return a.enabled || a.registered || a.persona.name !== 'Agent'
@@ -408,7 +479,6 @@ export function Setup() {
   const created = allAgents.filter(isCreated)
   const canCreate = allAgents.some(a => !isCreated(a))
 
-  // Auto-select first tab when data loads
   const displayTab = activeTab !== null && created.some(a => a.slot === activeTab)
     ? activeTab
     : created[0]?.slot ?? null
@@ -434,13 +504,14 @@ export function Setup() {
 
   return (
     <div className="space-y-4">
+
       {/* VRAM warning */}
       {created.length > 0 && models.data && (
         <ScheduleVramWarning agents={created} models={models.data} />
       )}
 
       {/* Tab strip */}
-      <div className="flex items-center gap-1 border-b border-gray-800 pb-0">
+      <div className="flex items-center gap-1 border-b border-gray-800">
         {created.map(agent => (
           <button
             key={agent.slot}
@@ -452,8 +523,8 @@ export function Setup() {
             }`}
           >
             <span className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${agent.enabled ? 'bg-green-400' : 'bg-gray-600'}`} />
-              {agent.persona.name}
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-green-400' : 'bg-gray-600'}`} />
+              {tabLabel(agent)}
             </span>
           </button>
         ))}
