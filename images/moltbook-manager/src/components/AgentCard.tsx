@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Play, Square, RefreshCw, ChevronDown, ChevronUp, Zap, Loader2 } from 'lucide-react'
-import { useStartAgent, useStopAgent, useTriggerHeartbeat, useAgentActivity } from '../hooks/useBackend'
+import { Play, Square, RefreshCw, ChevronDown, ChevronUp, Zap, Loader2, Users } from 'lucide-react'
+import { useStartAgent, useStopAgent, useTriggerHeartbeat, useInteractWithPeers, useAgentActivity } from '../hooks/useBackend'
 import type { Agent, ActivityEntry } from '../types'
 
 interface Props {
@@ -17,6 +17,8 @@ const ACTION_COLORS: Record<string, string> = {
   dm_request_pending: 'text-amber-400',
   dm_approved: 'text-green-400',
   manual_post: 'text-purple-400',
+  peer_interact: 'text-violet-400',
+  thread_reply: 'text-sky-400',
 }
 
 function ActivityRow({ entry }: { entry: ActivityEntry }) {
@@ -36,6 +38,7 @@ export function AgentCard({ agent }: Props) {
   const start = useStartAgent()
   const stop = useStopAgent()
   const heartbeat = useTriggerHeartbeat()
+  const interactPeers = useInteractWithPeers()
   const activity = useAgentActivity(agent.slot, expanded)
 
   const statusColor = agent.running ? 'bg-green-400' : 'bg-gray-600'
@@ -94,6 +97,16 @@ export function AgentCard({ agent }: Props) {
                 {heartbeat.isPending
                   ? <Loader2 className="w-4 h-4 animate-spin" />
                   : <Zap className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => interactPeers.mutate(agent.slot)}
+                disabled={interactPeers.isPending}
+                title="Interact with other running agents' posts"
+                className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors"
+              >
+                {interactPeers.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Users className="w-4 h-4" />}
               </button>
               <button
                 onClick={() => stop.mutate(agent.slot)}

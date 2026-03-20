@@ -179,3 +179,9 @@ export function useTriggerHeartbeat() {
     mutationFn: (slot: number) => post(`/api/agents/${slot}/heartbeat`),
   })
 }
+
+export function useInteractWithPeers() {
+  return useMutation({
+    mutationFn: (slot: number) => post(`/api/agents/${slot}/interact-with-peers`),
+  })
+}
