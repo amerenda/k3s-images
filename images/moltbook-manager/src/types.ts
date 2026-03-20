@@ -35,6 +35,10 @@ export interface AgentBehavior {
   karma_throttle_multiplier: number
   target_submolts: string[]
   auto_dm_approve: boolean
+  receive_peer_likes: boolean
+  receive_peer_comments: boolean
+  send_peer_likes: boolean
+  send_peer_comments: boolean
 }
 
 export interface AgentState {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Save, Plus, Trash2, Power, Info, AlertTriangle, HelpCircle } from 'lucide-react'
-import { useAgents, useModels, useUpdateAgent, useDeleteAgent, useGpu } from '../hooks/useBackend'
+import { useAgents, useModels, useUpdateAgent, useDeleteAgent, useGpu, useRegisterAgent } from '../hooks/useBackend'
 import type { Agent } from '../types'
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -127,6 +127,10 @@ function AgentSetupPanel({
     karma_throttle_multiplier: agent.behavior.karma_throttle_multiplier,
     target_submolts: agent.behavior.target_submolts.join(', '),
     auto_dm_approve: agent.behavior.auto_dm_approve,
+    receive_peer_likes: agent.behavior.receive_peer_likes,
+    receive_peer_comments: agent.behavior.receive_peer_comments,
+    send_peer_likes: agent.behavior.send_peer_likes,
+    send_peer_comments: agent.behavior.send_peer_comments,
   })
   const [saved, setSaved] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -158,6 +162,10 @@ function AgentSetupPanel({
           karma_throttle_multiplier: form.karma_throttle_multiplier,
           target_submolts: form.target_submolts.split(',').map((s: string) => s.trim()).filter(Boolean),
           auto_dm_approve: form.auto_dm_approve,
+          receive_peer_likes: form.receive_peer_likes,
+          receive_peer_comments: form.receive_peer_comments,
+          send_peer_likes: form.send_peer_likes,
+          send_peer_comments: form.send_peer_comments,
         },
       },
     })
@@ -201,6 +209,17 @@ function AgentSetupPanel({
           onConfirm={onDelete}
           onCancel={() => setConfirmDelete(false)}
         />
+      )}
+
+      {/* Registration status + inline register form */}
+      {!agent.registered ? (
+        <RegisterSection agent={agent} />
+      ) : (
+        <div className="flex items-center gap-2 text-xs text-green-400">
+          <span className="w-2 h-2 rounded-full bg-green-400" />
+          Registered on Moltbook
+          {!agent.claimed && <span className="text-amber-400 ml-1">· Unclaimed (check Twitter DMs)</span>}
+        </div>
       )}
 
       {/* Model */}
@@ -421,6 +440,41 @@ function AgentSetupPanel({
         </div>
       )}
 
+      {/* Peer interaction */}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-600 uppercase tracking-wide font-medium">Peer Agents</p>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={form.send_peer_likes}
+              onChange={e => setForm(f => ({ ...f, send_peer_likes: e.target.checked }))}
+              className="accent-brand-500" />
+            Send likes to peers
+            <Tip text="Automatically upvotes posts from other registered agents on this server. Uses the peer post database built up over time." />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={form.send_peer_comments}
+              onChange={e => setForm(f => ({ ...f, send_peer_comments: e.target.checked }))}
+              className="accent-brand-500" />
+            Send comments to peers
+            <Tip text="Automatically comments on posts from other registered agents. LLM-generated based on the post content. Avoids duplicate comments via a local post ID cache." />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={form.receive_peer_likes}
+              onChange={e => setForm(f => ({ ...f, receive_peer_likes: e.target.checked }))}
+              className="accent-brand-500" />
+            Track peer likes
+            <Tip text="Logs when peer agents like this agent's posts. Shows up in the activity feed as 'peer_liked'." />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={form.receive_peer_comments}
+              onChange={e => setForm(f => ({ ...f, receive_peer_comments: e.target.checked }))}
+              className="accent-brand-500" />
+            Reply to peer comments
+            <Tip text="When a peer agent comments on this agent's post, generates and posts a reply. Requires Auto-reply to be enabled." />
+          </label>
+        </div>
+      </div>
+
       <button
         onClick={handleSave}
         disabled={update.isPending}
@@ -429,6 +483,122 @@ function AgentSetupPanel({
         <Save className="w-4 h-4" />
         {saved ? 'Saved!' : update.isPending ? 'Saving…' : 'Save'}
       </button>
+    </div>
+  )
+}
+
+// ── Register section (inline in agent panel) ──────────────────────────────────
+
+function RegisterSection({ agent }: { agent: Agent }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(agent.persona.name)
+  const [description, setDescription] = useState(agent.persona.description)
+  const [result, setResult] = useState<string | null>(null)
+  const register = useRegisterAgent()
+
+  async function handleRegister() {
+    try {
+      const r = await register.mutateAsync({ slot: agent.slot, name, description }) as any
+      setResult(r.message ?? 'Registered!')
+    } catch (e: any) {
+      setResult(`Error: ${e.message}`)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-sm text-brand-400 hover:text-brand-300 border border-brand-700 hover:border-brand-500 rounded-lg px-3 py-1.5 transition-colors"
+      >
+        Register on Moltbook
+      </button>
+    )
+  }
+
+  return (
+    <div className="border border-gray-700 rounded-xl p-4 space-y-3 bg-gray-800/40">
+      <p className="text-xs text-gray-400">Register this agent on Moltbook. The name cannot be changed after registration.</p>
+      <div>
+        <label className="text-xs text-gray-500 mb-1 block">Username</label>
+        <input value={name} onChange={e => setName(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-brand-500" />
+      </div>
+      <div>
+        <label className="text-xs text-gray-500 mb-1 block">Bio</label>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-brand-500 resize-none" />
+      </div>
+      {result && <p className="text-xs text-green-400">{result}</p>}
+      <div className="flex gap-2">
+        <button onClick={handleRegister} disabled={register.isPending || !name.trim()}
+          className="bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">
+          {register.isPending ? 'Registering…' : 'Register'}
+        </button>
+        <button onClick={() => setOpen(false)}
+          className="bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm px-3 py-1.5 rounded-lg transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Register All modal ────────────────────────────────────────────────────────
+
+function RegisterAllModal({ agents, onClose }: { agents: Agent[], onClose: () => void }) {
+  const register = useRegisterAgent()
+  const [log, setLog] = useState<string[]>([])
+  const [running, setRunning] = useState(false)
+
+  const unregistered = agents.filter(a => !a.registered && a.persona.name !== 'Agent')
+
+  async function handleRegisterAll() {
+    setRunning(true)
+    for (const agent of unregistered) {
+      setLog(l => [...l, `Registering ${agent.persona.name}…`])
+      try {
+        const r = await register.mutateAsync({
+          slot: agent.slot,
+          name: agent.persona.name,
+          description: agent.persona.description,
+        }) as any
+        setLog(l => [...l, `✓ ${agent.persona.name}: ${r.message ?? 'Done'}`])
+      } catch (e: any) {
+        setLog(l => [...l, `✗ ${agent.persona.name}: ${e.message}`])
+      }
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    setRunning(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md space-y-4">
+        <h2 className="text-lg font-semibold text-gray-100">Register All Agents</h2>
+        <p className="text-sm text-gray-400">
+          Will attempt to register {unregistered.length} agent(s) on Moltbook:
+          {' '}<strong className="text-gray-200">{unregistered.map(a => a.persona.name).join(', ')}</strong>.
+          Each needs a unique name. After registration, check your Twitter DMs for claim links.
+        </p>
+        {log.length > 0 && (
+          <div className="bg-gray-800 rounded-lg p-3 text-xs text-gray-300 space-y-1 max-h-40 overflow-y-auto">
+            {log.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        )}
+        <div className="flex gap-2">
+          {!running && log.length === 0 && (
+            <button onClick={handleRegisterAll}
+              className="bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+              Register All
+            </button>
+          )}
+          <button onClick={onClose} disabled={running}
+            className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 text-sm px-4 py-2 rounded-lg transition-colors">
+            {running ? 'Working…' : 'Close'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -485,6 +655,7 @@ export function Setup() {
   const deleteAgent = useDeleteAgent()
 
   const [activeTab, setActiveTab] = useState<number | null>(null)
+  const [registerAllOpen, setRegisterAllOpen] = useState(false)
 
   const allAgents = agents.data ?? []
   const created = allAgents.filter(isCreated)
@@ -550,7 +721,18 @@ export function Setup() {
             Create Agent
           </button>
         )}
+
+        {created.some(a => !a.registered) && (
+          <button onClick={() => setRegisterAllOpen(true)}
+            className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 hover:text-brand-400 transition-colors ml-auto">
+            Register All
+          </button>
+        )}
       </div>
+
+      {registerAllOpen && (
+        <RegisterAllModal agents={created} onClose={() => setRegisterAllOpen(false)} />
+      )}
 
       {/* Tab content */}
       {displayTab !== null ? (
