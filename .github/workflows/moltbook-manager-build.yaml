@@ -23,7 +23,7 @@ env:
 jobs:
   build:
     name: Build and Push
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     permissions:
       contents: write
 
@@ -41,8 +41,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -71,7 +71,7 @@ jobs:
       - name: Update image tags in amerenda-k3s
         if: github.event_name != 'pull_request'
         env:
-          DEPLOY_PAT: ${{ secrets.AMERENDA_K3S_DEPLOY_PAT }}
+          DEPLOY_PAT: ${{ env.GITHUB_DEPLOY_PAT }}
           SHA: ${{ github.sha }}
         run: |
           git clone https://x-access-token:${DEPLOY_PAT}@github.com/amerenda/amerenda-k3s.git /tmp/amerenda-k3s
