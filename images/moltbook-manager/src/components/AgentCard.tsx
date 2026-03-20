@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Play, Square, RefreshCw, ChevronDown, ChevronUp, Clock, Zap } from 'lucide-react'
+import { Play, Square, RefreshCw, ChevronDown, ChevronUp, Zap, Loader2 } from 'lucide-react'
 import { useStartAgent, useStopAgent, useTriggerHeartbeat, useAgentActivity } from '../hooks/useBackend'
 import type { Agent, ActivityEntry } from '../types'
 
@@ -79,7 +79,9 @@ export function AgentCard({ agent }: Props) {
               title={!agent.registered ? 'Register first' : 'Start agent'}
               className="p-1.5 rounded-lg bg-green-900/50 hover:bg-green-800/50 disabled:opacity-30 text-green-400 transition-colors"
             >
-              <Play className="w-4 h-4" />
+              {start.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Play className="w-4 h-4" />}
             </button>
           ) : (
             <>
@@ -89,7 +91,9 @@ export function AgentCard({ agent }: Props) {
                 title="Trigger heartbeat now"
                 className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 transition-colors"
               >
-                <Zap className="w-4 h-4" />
+                {heartbeat.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Zap className="w-4 h-4" />}
               </button>
               <button
                 onClick={() => stop.mutate(agent.slot)}
@@ -97,7 +101,9 @@ export function AgentCard({ agent }: Props) {
                 title="Stop agent"
                 className="p-1.5 rounded-lg bg-red-900/50 hover:bg-red-800/50 text-red-400 transition-colors"
               >
-                <Square className="w-4 h-4" />
+                {stop.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Square className="w-4 h-4" />}
               </button>
             </>
           )}

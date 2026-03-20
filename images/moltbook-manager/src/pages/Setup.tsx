@@ -222,7 +222,7 @@ export function Setup() {
             <Minus className="w-4 h-4" />
           </button>
           <div className="flex gap-2">
-            {[1, 2, 3].map(n => (
+            {[1, 2, 3, 4, 5, 6].map(n => (
               <button
                 key={n}
                 onClick={() => handleCountChange(n)}
@@ -237,8 +237,8 @@ export function Setup() {
             ))}
           </div>
           <button
-            onClick={() => agentCount < 3 && handleCountChange(agentCount + 1)}
-            disabled={agentCount >= 3}
+            onClick={() => agentCount < 6 && handleCountChange(agentCount + 1)}
+            disabled={agentCount >= 6}
             className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-300 transition-colors"
           >
             <Plus className="w-4 h-4" />
