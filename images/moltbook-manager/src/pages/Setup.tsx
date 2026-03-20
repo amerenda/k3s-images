@@ -48,29 +48,40 @@ function maxConcurrentVram(agents: Agent[], modelVram: Record<string, number>): 
 
 // ── Delete confirmation ───────────────────────────────────────────────────────
 
-function DeleteConfirm({ agent, onConfirm, onCancel }: {
+// Registered agents need a two-step confirmation with typed acknowledgement
+function RegisteredDeleteConfirm({ agent, onConfirm, onCancel }: {
   agent: Agent
   onConfirm: () => void
   onCancel: () => void
 }) {
+  const [typed, setTyped] = useState('')
+  const confirmed = typed === agent.persona.name
   return (
-    <div className="rounded-xl border border-red-800 bg-red-950/30 p-4 space-y-3">
-      {agent.registered && (
-        <div className="flex gap-2 text-sm text-amber-300">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <span>
-            <strong>{agent.persona.name}</strong> is registered on Moltbook. Deleting removes the
-            local config only — the Moltbook account will still exist.
-          </span>
-        </div>
-      )}
-      <p className="text-sm text-gray-300">
-        Delete <strong>{agent.persona.name}</strong>? This cannot be undone.
-      </p>
+    <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-4 space-y-3">
+      <div className="flex gap-2 text-sm text-amber-300">
+        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <span>
+          <strong>{agent.persona.name}</strong> is registered on Moltbook. The remote account
+          will keep existing — only the local config is removed. You will not be able to
+          control this agent again without re-registering.
+        </span>
+      </div>
+      <div>
+        <p className="text-xs text-gray-400 mb-1">
+          Type <strong className="text-gray-200">{agent.persona.name}</strong> to confirm
+        </p>
+        <input
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          placeholder={agent.persona.name}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-red-500"
+        />
+      </div>
       <div className="flex gap-2">
         <button
           onClick={onConfirm}
-          className="bg-red-700 hover:bg-red-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          disabled={!confirmed}
+          className="bg-red-700 hover:bg-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
         >
           Delete
         </button>
@@ -176,7 +187,7 @@ function AgentSetupPanel({
           {agent.enabled ? 'Active' : 'Inactive'}
         </button>
         <button
-          onClick={() => setConfirmDelete(true)}
+          onClick={() => agent.registered ? setConfirmDelete(true) : onDelete()}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-400 transition-colors px-2 py-1.5"
         >
           <Trash2 className="w-4 h-4" />
@@ -184,8 +195,8 @@ function AgentSetupPanel({
         </button>
       </div>
 
-      {confirmDelete && (
-        <DeleteConfirm
+      {confirmDelete && agent.registered && (
+        <RegisteredDeleteConfirm
           agent={agent}
           onConfirm={onDelete}
           onCancel={() => setConfirmDelete(false)}
