@@ -1,18 +1,63 @@
-name: Build and Push k3s-images
+name: Build and Push Images
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'images/**'
+      - '.github/workflows/build.yaml'
   pull_request:
     branches: [main]
+    paths:
+      - 'images/**'
+      - '.github/workflows/build.yaml'
   workflow_dispatch:
 
 jobs:
-  # Placeholder job — no generic images defined yet.
-  # Each image has its own dedicated workflow (e.g. moltbook-manager-build.yaml).
-  # Add image-specific workflows following that pattern.
-  noop:
-    name: No generic images to build
+  build:
+    name: ${{ matrix.dir }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: mem0-server
+            tags: |
+              amerenda/mem0-server:latest
+          - dir: moltbook-manager
+            tags: |
+              amerenda/k3s-images:moltbook-manager-${{ github.sha }}
+              amerenda/k3s-images:moltbook-manager-latest
+          - dir: moltbook-controller
+            tags: |
+              amerenda/k3s-images:moltbook-controller-${{ github.sha }}
+              amerenda/k3s-images:moltbook-controller-latest
+
     steps:
-      - run: echo "No images defined in generic build.yaml — see per-image workflows"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.dir }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/${{ matrix.dir }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ matrix.tags }}
+          cache-from: type=gha,scope=${{ matrix.dir }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.dir }}
