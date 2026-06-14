@@ -6,7 +6,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     git clone --depth 1 https://github.com/mem0ai/mem0.git /tmp/mem0 && \
     mkdir -p /app && \
-    cp -r /tmp/mem0/mem0/server/* /app/ && \
+    cp -r /tmp/mem0/server/* /app/ && \
     rm -rf /tmp/mem0 && \
     apt-get purge -y git && \
     apt-get autoremove -y && \
