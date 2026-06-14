@@ -26,14 +26,6 @@ jobs:
           - dir: mem0-server
             tags: |
               amerenda/mem0-server:latest
-          - dir: moltbook-manager
-            tags: |
-              amerenda/k3s-images:moltbook-manager-${{ github.sha }}
-              amerenda/k3s-images:moltbook-manager-latest
-          - dir: moltbook-controller
-            tags: |
-              amerenda/k3s-images:moltbook-controller-${{ github.sha }}
-              amerenda/k3s-images:moltbook-controller-latest
 
     steps:
       - name: Checkout
