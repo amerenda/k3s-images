@@ -16,5 +16,8 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir -r requirements.txt psycopg[binary]
 
+# PostgreSQL history manager + startup patch (replaces SQLiteManager)
+COPY history_pg.py startup_patch.py ./
+
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-c", "import startup_patch; import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=8000)"]
