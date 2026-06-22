@@ -24,6 +24,10 @@ jobs:
           - dir: mem0-server
             tags: |
               amerenda/mem0-server:latest
+          - dir: openhands
+            platforms: linux/amd64
+            tags: |
+              amerenda/openhands:latest
 
     steps:
       - name: Checkout
@@ -43,7 +47,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./images/${{ matrix.dir }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ matrix.tags }}
           cache-from: type=gha,scope=${{ matrix.dir }}
