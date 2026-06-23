@@ -2,8 +2,10 @@ FROM ghcr.io/all-hands-ai/openhands:latest
 USER root
 # tmux required by RUNTIME=local for shell session management
 # Playwright chromium required for browser tool support (binaries not bundled in official image)
-RUN apt-get update && apt-get install -y tmux && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y tmux git && rm -rf /var/lib/apt/lists/*
 RUN /app/.venv/bin/playwright install chromium --with-deps
+# Pre-install tools agents commonly need: PyJWT for GitHub App token generation
+RUN /app/.venv/bin/pip install --quiet PyJWT cryptography
 
 # Stub openvscode-server so the VSCode plugin init loop terminates.
 # local_runtime.py always sets VSCODE_PORT and the plugin waits for "at"
