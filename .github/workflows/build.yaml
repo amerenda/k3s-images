@@ -47,7 +47,7 @@ jobs:
         if: matrix.dir == 'model-switcher'
         working-directory: ./images/model-switcher
         run: |
-          pip install fastapi uvicorn docker huggingface_hub pytest httpx --quiet
+          pip3 install fastapi uvicorn docker huggingface_hub pytest httpx --quiet
           python3 -m pytest test_model_switcher.py -v
 
       - name: Log in to Docker Hub
