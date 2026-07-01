@@ -44,6 +44,8 @@ Environment:
   CTX                   context window size              (default: 131072)
   HEALTH_TIMEOUT        seconds to wait for healthy      (default: 300)
   HF_TOKEN              Hugging Face token for gated models (optional)
+  LLAMA_CONFIG_HASH     compose config-hash for the managed service; stamped on
+                        SDK-started containers so docker compose ps shows them
 """
 from __future__ import annotations
 
@@ -81,6 +83,8 @@ _CTX = os.environ.get("CTX", "131072")
 _HEALTH_TIMEOUT = int(os.environ.get("HEALTH_TIMEOUT", "300"))
 # Compose project name used as a label on managed containers so Komodo/compose can track them.
 _COMPOSE_PROJECT = os.environ.get("COMPOSE_PROJECT_NAME", f"llm-{_CONTAINER.replace('-', '')}")
+# Config hash compose would compute for the managed container's service — lets compose ps show it.
+_COMPOSE_CONFIG_HASH = os.environ.get("LLAMA_CONFIG_HASH", "")
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +170,8 @@ def _start_container(client: docker_sdk.DockerClient, model_path: str) -> None:
             "com.docker.compose.service": _CONTAINER,
             "com.docker.compose.container-number": "1",
             "com.docker.compose.oneoff": "False",
+            **( {"com.docker.compose.config-hash": _COMPOSE_CONFIG_HASH}
+                if _COMPOSE_CONFIG_HASH else {} ),
         },
     )
 
