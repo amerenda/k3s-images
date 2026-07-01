@@ -43,6 +43,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Run model-switcher tests
+        if: matrix.dir == 'model-switcher'
+        working-directory: ./images/model-switcher
+        run: |
+          pip install fastapi uvicorn docker huggingface_hub pytest httpx --quiet
+          python3 -m pytest test_model_switcher.py -v
+
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
