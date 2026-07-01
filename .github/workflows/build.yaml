@@ -24,6 +24,10 @@ jobs:
           - dir: mem0-server
             tags: |
               amerenda/mem0-server:latest
+          - dir: model-switcher
+            platforms: linux/amd64
+            tags: |
+              amerenda/model-switcher:latest
           - dir: openhands
             platforms: linux/amd64
             tags: |
