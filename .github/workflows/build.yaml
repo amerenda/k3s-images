@@ -43,6 +43,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Run model-switcher tests
+        if: matrix.dir == 'model-switcher'
+        run: |
+          docker build -t model-switcher-test -f images/model-switcher/Dockerfile.test images/model-switcher
+          docker run --rm model-switcher-test
+
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin

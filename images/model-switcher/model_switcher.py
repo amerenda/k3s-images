@@ -6,6 +6,9 @@ Hugging Face. Fully parameterized via env vars — no host-specific code.
 POST /switch starts an async switch and returns immediately. Callers poll
 GET /status until state is "ready" or an "error_*" state.
 
+POST /pull is also async (HTTP 202). Callers poll GET /status and watch
+pull_state + pull_pct until pull_state is "complete" or "error_pull_failed".
+
 States (machine-readable, stable):
   ready                 — model loaded and serving
   unloading             — stopping previous inference container
@@ -24,12 +27,18 @@ States (machine-readable, stable):
   error_load_timeout    — health check timed out (> HEALTH_TIMEOUT seconds)
   error_unknown         — unclassified error; see error_detail
 
+Pull states (machine-readable, stable):
+  idle              — no pull in progress or recently completed
+  downloading       — actively downloading from Hugging Face
+  complete          — last pull succeeded; see pull_completed_path
+  error_pull_failed — last pull failed; see pull_error
+
 Endpoints:
   GET  /health   liveness; includes prod_model_path for restore reference
-  GET  /status   current switch state — always available, poll this
+  GET  /status   current switch + pull state — always available, poll this
   GET  /models   list GGUFs on disk under MODEL_BASE_DIR
   POST /switch   start async model switch; 409 if switch already in progress
-  POST /pull     download a GGUF from Hugging Face (synchronous; can be long)
+  POST /pull     start async GGUF download; 409 if pull or switch in progress
 
 Environment:
   SWITCH_PSK            required — shared secret for mutating endpoints
@@ -63,6 +72,7 @@ from typing import Optional
 import docker as docker_sdk
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from huggingface_hub import HfApi, hf_hub_download
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +132,35 @@ def _get_state() -> dict:
 
 def _is_terminal(state: str) -> bool:
     return state == "ready" or state.startswith("error_")
+
+
+# ---------------------------------------------------------------------------
+# Pull state
+
+_pull_state_lock = threading.Lock()
+_pull_state: dict = {
+    "pull_state": "idle",
+    "pull_repo": None,
+    "pull_filename": None,
+    "pull_bytes_downloaded": None,
+    "pull_bytes_total": None,
+    "pull_pct": None,
+    "pull_started_at": None,
+    "pull_completed_path": None,
+    "pull_error": None,
+}
+
+
+def _set_pull_state(**kwargs: object) -> dict:
+    with _pull_state_lock:
+        _pull_state.update(kwargs)
+        logger.info("pull_state → %s", _pull_state["pull_state"])
+        return dict(_pull_state)
+
+
+def _get_pull_state() -> dict:
+    with _pull_state_lock:
+        return dict(_pull_state)
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +400,80 @@ def _do_switch(path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pull logic (runs in background thread)
+
+def _get_hf_file_size(repo_id: str, filename: str, token: str | None) -> int | None:
+    try:
+        info = HfApi().get_paths_info(repo_id=repo_id, paths=[filename], token=token)
+        if info:
+            return getattr(info[0], "size", None)
+    except Exception as exc:
+        logger.warning("Could not get HF file size for %s/%s: %s", repo_id, filename, exc)
+    return None
+
+
+def _poll_download_progress(filename: str, stop_event: threading.Event) -> None:
+    """Update pull_bytes_downloaded every 2s by polling the partial file on disk."""
+    candidate_paths = [
+        os.path.join(_MODEL_BASE_DIR, filename),
+        os.path.join(_MODEL_BASE_DIR, filename + ".incomplete"),
+    ]
+    while not stop_event.is_set():
+        for path in candidate_paths:
+            try:
+                size = os.path.getsize(path)
+                if size > 0:
+                    with _pull_state_lock:
+                        total = _pull_state.get("pull_bytes_total")
+                        _pull_state["pull_bytes_downloaded"] = size
+                        if total:
+                            _pull_state["pull_pct"] = round(size / total * 100, 1)
+                    break
+            except OSError:
+                pass
+        stop_event.wait(2)
+
+
+def _do_pull(hf_repo: str, filename: str, hf_token: str | None) -> None:
+    # Fetch total size upfront so progress bar is meaningful
+    total_size = _get_hf_file_size(hf_repo, filename, hf_token)
+    with _pull_state_lock:
+        _pull_state["pull_bytes_total"] = total_size
+
+    stop_event = threading.Event()
+    poll_thread = threading.Thread(
+        target=_poll_download_progress,
+        args=(filename, stop_event),
+        daemon=True,
+    )
+    poll_thread.start()
+
+    try:
+        result_path = hf_hub_download(
+            repo_id=hf_repo,
+            filename=filename,
+            local_dir=_MODEL_BASE_DIR,
+            token=hf_token,
+        )
+        stop_event.set()
+        _set_pull_state(
+            pull_state="complete",
+            pull_bytes_downloaded=total_size,
+            pull_pct=100.0 if total_size else None,
+            pull_completed_path=result_path,
+        )
+        logger.info("Pull complete: %s", result_path)
+    except Exception as exc:
+        logger.error("Pull failed: %s", exc)
+        _set_pull_state(
+            pull_state="error_pull_failed",
+            pull_error=str(exc),
+        )
+    finally:
+        stop_event.set()
+
+
+# ---------------------------------------------------------------------------
 # Startup manager
 
 def _startup_manager() -> None:
@@ -448,7 +561,22 @@ def health() -> dict:
 
 @app.get("/status")
 def status() -> dict:
-    return _get_state()
+    s = _get_state()
+
+    # Compute switch elapsed seconds (only meaningful while loading)
+    if s["state"] == "loading" and s.get("switch_started_at"):
+        try:
+            started = datetime.fromisoformat(s["switch_started_at"])
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+            s["switch_elapsed_s"] = round(elapsed, 1)
+        except Exception:
+            s["switch_elapsed_s"] = None
+    else:
+        s["switch_elapsed_s"] = None
+
+    s["switch_timeout_s"] = _HEALTH_TIMEOUT
+    s.update(_get_pull_state())
+    return s
 
 
 @app.get("/models")
@@ -497,29 +625,45 @@ def switch_model(
     return _get_state()
 
 
-@app.post("/pull")
+@app.post("/pull", status_code=202)
 def pull_model(req: PullRequest, x_psk: str = Header(...)) -> dict:
     _psk_check(x_psk)
 
     if not _MODEL_BASE_DIR:
         raise HTTPException(status_code=500, detail="MODEL_BASE_DIR not configured")
 
-    from huggingface_hub import hf_hub_download
+    with _pull_state_lock:
+        if _pull_state["pull_state"] == "downloading":
+            raise HTTPException(
+                status_code=409,
+                detail="A pull is already in progress. Poll GET /status for pull_state.",
+            )
 
-    logger.info("Pulling %s / %s → %s", req.hf_repo, req.filename, _MODEL_BASE_DIR)
-    try:
-        local_path = hf_hub_download(
-            repo_id=req.hf_repo,
-            filename=req.filename,
-            local_dir=_MODEL_BASE_DIR,
-            token=req.hf_token or os.environ.get("HF_TOKEN") or None,
-        )
-    except Exception as exc:
-        logger.error("Pull failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    with _state_lock:
+        current_switch = _state["state"]
+        if not _is_terminal(current_switch):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Switch in progress (state={current_switch!r}). "
+                       f"Wait for it to complete before pulling.",
+            )
 
-    logger.info("Downloaded to %s", local_path)
-    return {"status": "ok", "path": local_path}
+    token = req.hf_token or os.environ.get("HF_TOKEN") or None
+
+    _set_pull_state(
+        pull_state="downloading",
+        pull_repo=req.hf_repo,
+        pull_filename=req.filename,
+        pull_bytes_downloaded=0,
+        pull_bytes_total=None,
+        pull_pct=None,
+        pull_started_at=_now(),
+        pull_completed_path=None,
+        pull_error=None,
+    )
+
+    threading.Thread(target=_do_pull, args=(req.hf_repo, req.filename, token), daemon=True).start()
+    return _get_pull_state()
 
 
 if __name__ == "__main__":
