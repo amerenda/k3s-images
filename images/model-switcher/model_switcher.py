@@ -79,6 +79,8 @@ _PROD_MODEL_PATH = os.environ.get("PROD_MODEL_PATH", "")
 _NGL = os.environ.get("NGL", "99")
 _CTX = os.environ.get("CTX", "131072")
 _HEALTH_TIMEOUT = int(os.environ.get("HEALTH_TIMEOUT", "300"))
+# Compose project name used as a label on managed containers so Komodo/compose can track them.
+_COMPOSE_PROJECT = os.environ.get("COMPOSE_PROJECT_NAME", f"llm-{_CONTAINER.replace('-', '')}")
 
 
 # ---------------------------------------------------------------------------
@@ -160,8 +162,10 @@ def _start_container(client: docker_sdk.DockerClient, model_path: str) -> None:
             "PORT": str(_INFERENCE_PORT),
         },
         labels={
-            "com.docker.compose.project": f"llm-{_CONTAINER.replace('-', '')}",
+            "com.docker.compose.project": _COMPOSE_PROJECT,
             "com.docker.compose.service": _CONTAINER,
+            "com.docker.compose.container-number": "1",
+            "com.docker.compose.oneoff": "False",
         },
     )
 
@@ -351,6 +355,56 @@ def _do_switch(path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Startup manager
+
+def _startup_manager() -> None:
+    """On startup, ensure the managed container is running with PROD_MODEL_PATH.
+
+    Runs in a background thread so the FastAPI app becomes available immediately.
+    If the managed container is already running (e.g. after a model-switcher restart),
+    we read its MODEL env var to restore accurate state without disrupting inference.
+    """
+    if not _PROD_MODEL_PATH:
+        logger.info("Startup: PROD_MODEL_PATH not set — skipping managed container check")
+        return
+
+    client = _docker()
+    try:
+        c = client.containers.get(_CONTAINER)
+        if c.status == "running":
+            # Already running — read which model is loaded from the container env
+            env = {}
+            for item in c.attrs.get("Config", {}).get("Env", []):
+                k, _, v = item.partition("=")
+                env[k] = v
+            current = env.get("MODEL", _PROD_MODEL_PATH)
+            logger.info("Startup: %s already running with model=%s", _CONTAINER, current)
+            _set_state(state="ready", model_path=current)
+            return
+        else:
+            logger.info("Startup: %s found but status=%s — removing and restarting", _CONTAINER, c.status)
+            c.remove(force=True)
+    except docker_sdk.errors.NotFound:
+        logger.info("Startup: %s not found — starting with prod model", _CONTAINER)
+
+    _set_state(state="loading", model_path=_PROD_MODEL_PATH, switch_started_at=_now())
+    try:
+        _start_container(client, _PROD_MODEL_PATH)
+    except Exception as exc:
+        _set_state(state="error_container_start", error="error_container_start",
+                   error_detail=f"Startup failed to start container: {exc}")
+        return
+
+    if _wait_healthy(client):
+        _set_state(state="ready", error=None, error_detail=None, switch_started_at=None)
+        logger.info("Startup: prod model ready")
+    else:
+        error, detail = _classify_failure(client, timed_out=True)
+        _set_state(state=error, error=error, error_detail=detail)
+        logger.error("Startup: managed container failed to become healthy: %s", error)
+
+
+# ---------------------------------------------------------------------------
 # Request/response models
 
 class SwitchRequest(BaseModel):
@@ -375,6 +429,11 @@ def _psk_check(x_psk: str) -> None:
 
 # ---------------------------------------------------------------------------
 # Endpoints
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    threading.Thread(target=_startup_manager, daemon=True).start()
+
 
 @app.get("/health")
 def health() -> dict:
