@@ -46,11 +46,8 @@ jobs:
       - name: Run model-switcher tests
         if: matrix.dir == 'model-switcher'
         run: |
-          docker run --rm \
-            -v "${{ github.workspace }}/images/model-switcher:/app" \
-            -w /app \
-            python:3.12-slim \
-            sh -c "pip install fastapi uvicorn docker huggingface_hub pytest httpx --quiet && python3 -m pytest test_model_switcher.py -v"
+          docker build -t model-switcher-test -f images/model-switcher/Dockerfile.test images/model-switcher
+          docker run --rm model-switcher-test
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
