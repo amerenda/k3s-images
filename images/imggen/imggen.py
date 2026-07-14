@@ -3,9 +3,14 @@
 Receives OpenAI chat completions requests, expands the user prompt via
 qwen3:14b on archlinux, generates an image via ComfyUI on murderbot,
 and returns the image as a base64 data URI embedded in markdown.
+
+Supports both streaming (SSE) and non-streaming responses. OWU and most
+clients send stream=true; this service sends progress chunks to keep the
+connection alive during the ~90s generation time.
 """
 import asyncio
 import base64
+import json
 import logging
 import os
 import random
@@ -15,7 +20,7 @@ import uuid
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -30,7 +35,6 @@ LANGFUSE_PROMPT_NAME = os.getenv("LANGFUSE_PROMPT_NAME", "imggen-expansion-syste
 COMFYUI_POLL_INTERVAL = float(os.getenv("COMFYUI_POLL_INTERVAL", "2"))
 COMFYUI_TIMEOUT = float(os.getenv("COMFYUI_TIMEOUT", "300"))
 
-# Session state: keyed by conversation ID (last seed/prompt for refinement)
 _sessions: dict[str, dict] = {}
 _system_prompt_cache: str | None = None
 
@@ -66,7 +70,6 @@ async def get_system_prompt() -> str:
 
 
 async def expand_prompt(description: str, prev_context: str | None, system_prompt: str) -> tuple[str, str, int]:
-    """Call qwen3:14b on archlinux to expand the image description into a FLUX prompt."""
     messages = [{"role": "system", "content": system_prompt}]
     if prev_context:
         messages.append({
@@ -117,13 +120,6 @@ async def expand_prompt(description: str, prev_context: str | None, system_promp
 
 
 def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, height: int = 1024) -> dict:
-    """Build ComfyUI API-format workflow for FLUX FP8 with LoRA stack.
-
-    Chain: UNETLoader → 3 LoRA loaders → KSampler
-           DualCLIPLoader → CLIPTextEncode (pos/neg)
-           VAELoader → VAEDecode
-           SaveImage
-    """
     return {
         "1": {
             "class_type": "UNETLoader",
@@ -207,7 +203,6 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
 
 
 async def generate_image(positive: str, negative: str, seed: int) -> bytes:
-    """Submit workflow to ComfyUI, poll until complete, return raw PNG bytes."""
     workflow = build_workflow(positive, negative, seed)
     client_id = str(uuid.uuid4())
 
@@ -243,7 +238,6 @@ async def generate_image(positive: str, negative: str, seed: int) -> bytes:
             if prompt_id not in data:
                 continue
 
-            # Check for errors in queue
             status_data = data[prompt_id].get("status", {})
             if status_data.get("status_str") == "error":
                 msgs = status_data.get("messages", [])
@@ -266,6 +260,69 @@ async def generate_image(positive: str, negative: str, seed: int) -> bytes:
     raise HTTPException(504, f"ComfyUI generation timed out after {int(COMFYUI_TIMEOUT)}s")
 
 
+def _sse_chunk(content: str, chunk_id: str, finish_reason=None) -> str:
+    delta = {"content": content} if content else {"role": "assistant", "content": ""}
+    chunk = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "model": "image-gen",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+    }
+    return f"data: {json.dumps(chunk)}\n\n"
+
+
+async def _stream_generate(user_msg: str, conv_id: str, session: dict):
+    chunk_id = f"imggen-{uuid.uuid4().hex[:8]}"
+
+    yield _sse_chunk("", chunk_id)
+    yield _sse_chunk("*Expanding prompt...*", chunk_id)
+
+    system_prompt = await get_system_prompt()
+    prev_context = None
+    if session:
+        prev_context = (
+            f"POSITIVE: {session['positive']}\n"
+            f"NEGATIVE: {session['negative']}\n"
+            f"SEED: {session['seed']}"
+        )
+
+    try:
+        positive, negative, seed = await expand_prompt(user_msg, prev_context, system_prompt)
+        log.info("Expanded prompt seed=%d: %s...", seed, positive[:80])
+        yield _sse_chunk(f"\n*Generating image (seed `{seed}`)...*", chunk_id)
+    except Exception as exc:
+        log.error("Prompt expansion failed: %s — using raw description", exc)
+        positive = user_msg
+        negative = "deformed hands, extra fingers, bad anatomy, blurry, watermark, low quality"
+        seed = random.randint(1, 2147483647)
+        yield _sse_chunk(f"\n*Prompt expansion failed, using raw prompt (seed `{seed}`)...*", chunk_id)
+
+    try:
+        image_bytes = await generate_image(positive, negative, seed)
+    except HTTPException as exc:
+        yield _sse_chunk(f"\n\n**Error:** {exc.detail}", chunk_id)
+        yield _sse_chunk("", chunk_id, finish_reason="stop")
+        yield "data: [DONE]\n\n"
+        return
+
+    _sessions[conv_id] = {"positive": positive, "negative": negative, "seed": seed}
+
+    b64 = base64.b64encode(image_bytes).decode()
+    content = (
+        f"\n\n![generated image](data:image/png;base64,{b64})\n\n"
+        f"**Seed:** `{seed}`  \n"
+        f"**Prompt:** {positive[:300]}{'…' if len(positive) > 300 else ''}"
+    )
+
+    # Send in chunks to avoid buffering the full 2MB base64 string at once
+    chunk_size = 8192
+    for i in range(0, len(content), chunk_size):
+        yield _sse_chunk(content[i:i + chunk_size], chunk_id)
+
+    yield _sse_chunk("", chunk_id, finish_reason="stop")
+    yield "data: [DONE]\n\n"
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "imggen"}
@@ -273,7 +330,6 @@ async def health():
 
 @app.get("/status", response_class=HTMLResponse)
 async def status_page():
-    """Visual mode indicator — green when ComfyUI is up (image mode), grey when down (LLM mode)."""
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.get(f"{COMFYUI_URL}/system_stats")
@@ -321,7 +377,6 @@ async def chat_completions(request: Request):
     if not messages:
         raise HTTPException(400, "No messages")
 
-    # LiteLLM forwards conversation context; use user field or a default key
     conv_id = body.get("user") or body.get("conversation_id") or "default"
     session = _sessions.get(conv_id, {})
 
@@ -330,7 +385,6 @@ async def chat_completions(request: Request):
         if m.get("role") == "user":
             user_msg = m.get("content", "")
             if isinstance(user_msg, list):
-                # Handle multipart content
                 user_msg = " ".join(p.get("text", "") for p in user_msg if isinstance(p, dict))
             break
 
@@ -339,9 +393,15 @@ async def chat_completions(request: Request):
 
     log.info("conv=%s: %s", conv_id, user_msg[:100])
 
-    system_prompt = await get_system_prompt()
+    if body.get("stream", False):
+        return StreamingResponse(
+            _stream_generate(user_msg, conv_id, session),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
 
-    # Build refinement context if we have a previous session
+    # Non-streaming path
+    system_prompt = await get_system_prompt()
     prev_context = None
     if session:
         prev_context = (
@@ -360,7 +420,6 @@ async def chat_completions(request: Request):
         seed = random.randint(1, 2147483647)
 
     image_bytes = await generate_image(positive, negative, seed)
-
     _sessions[conv_id] = {"positive": positive, "negative": negative, "seed": seed}
 
     b64 = base64.b64encode(image_bytes).decode()
