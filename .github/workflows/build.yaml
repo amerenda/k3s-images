@@ -32,6 +32,10 @@ jobs:
             platforms: linux/amd64
             tags: |
               amerenda/openhands:latest
+          - dir: imggen
+            platforms: linux/amd64
+            tags: |
+              amerenda/imggen:latest
 
     steps:
       - name: Checkout
