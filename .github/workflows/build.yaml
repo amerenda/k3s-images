@@ -22,6 +22,7 @@ jobs:
       matrix:
         include:
           - dir: mem0-server
+            platforms: linux/amd64
             tags: |
               amerenda/mem0-server:latest
           - dir: model-switcher
@@ -41,23 +42,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check if this image changed
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            changed:
+              - 'images/${{ matrix.dir }}/**'
+              - '.github/workflows/build.yaml'
+
       - name: Set up QEMU
+        if: steps.filter.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: steps.filter.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/setup-buildx-action@v3
 
       - name: Run model-switcher tests
-        if: matrix.dir == 'model-switcher'
+        if: (steps.filter.outputs.changed == 'true' || github.event_name == 'workflow_dispatch') && matrix.dir == 'model-switcher'
         run: |
           docker build -t model-switcher-test -f images/model-switcher/Dockerfile.test images/model-switcher
           docker run --rm model-switcher-test
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: (steps.filter.outputs.changed == 'true' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
         run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
       - name: Build and push ${{ matrix.dir }}
+        if: steps.filter.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         uses: docker/build-push-action@v6
         with:
           context: ./images/${{ matrix.dir }}
