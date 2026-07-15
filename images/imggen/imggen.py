@@ -126,6 +126,7 @@ async def expand_prompt(description: str, prev_context: str | None, system_promp
 
 def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, height: int = 1024) -> dict:
     return {
+        # --- Model loading ---
         "1": {
             "class_type": "UNETLoader",
             "inputs": {
@@ -169,6 +170,7 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "VAELoader",
             "inputs": {"vae_name": "ae.safetensors"},
         },
+        # --- Text encoding ---
         "7": {
             "class_type": "CLIPTextEncode",
             "inputs": {"text": positive, "clip": ["5", 0]},
@@ -177,6 +179,7 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "CLIPTextEncode",
             "inputs": {"text": negative, "clip": ["5", 0]},
         },
+        # --- Generation ---
         "9": {
             "class_type": "EmptySD3LatentImage",
             "inputs": {"width": width, "height": height, "batch_size": 1},
@@ -189,10 +192,10 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
                 "negative": ["8", 0],
                 "latent_image": ["9", 0],
                 "seed": seed,
-                "steps": 25,
+                "steps": 30,
                 "cfg": 1.0,
-                "sampler_name": "euler",
-                "scheduler": "simple",
+                "sampler_name": "dpm_2m",
+                "scheduler": "karras",
                 "denoise": 1.0,
             },
         },
@@ -200,9 +203,19 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "VAEDecode",
             "inputs": {"samples": ["10", 0], "vae": ["6", 0]},
         },
+        # --- ESRGAN 4x upscale (1024 → 4096) ---
+        # Uses 4x_NMKD-Siax_200k.pth already present at /mnt/storage/models/upscale/
+        "13": {
+            "class_type": "UpscaleModelLoader",
+            "inputs": {"model_name": "4x_NMKD-Siax_200k.pth"},
+        },
+        "14": {
+            "class_type": "ImageUpscaleWithModel",
+            "inputs": {"upscale_model": ["13", 0], "image": ["11", 0]},
+        },
         "12": {
             "class_type": "SaveImage",
-            "inputs": {"images": ["11", 0], "filename_prefix": "imggen"},
+            "inputs": {"images": ["14", 0], "filename_prefix": "imggen"},
         },
     }
 
