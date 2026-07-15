@@ -203,8 +203,10 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "VAEDecode",
             "inputs": {"samples": ["10", 0], "vae": ["6", 0]},
         },
-        # --- ESRGAN 4x upscale (1024 → 4096) ---
-        # Uses 4x_NMKD-Siax_200k.pth already present at /mnt/storage/models/upscale/
+        # --- ESRGAN 4x upscale then downscale to 2048 ---
+        # Upscale 1024→4096 for sharpening/detail enhancement, then lanczos
+        # downscale to 2048×2048. The ESRGAN pass adds fine detail that survives
+        # the downscale; output is ~5MB vs 24MB at native 4096.
         "13": {
             "class_type": "UpscaleModelLoader",
             "inputs": {"model_name": "4x_NMKD-Siax_200k.pth"},
@@ -213,9 +215,19 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "ImageUpscaleWithModel",
             "inputs": {"upscale_model": ["13", 0], "image": ["11", 0]},
         },
+        "15": {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["14", 0],
+                "upscale_method": "lanczos",
+                "width": 2048,
+                "height": 2048,
+                "crop": "disabled",
+            },
+        },
         "12": {
             "class_type": "SaveImage",
-            "inputs": {"images": ["14", 0], "filename_prefix": "imggen"},
+            "inputs": {"images": ["15", 0], "filename_prefix": "imggen"},
         },
     }
 
