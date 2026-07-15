@@ -203,10 +203,9 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "VAEDecode",
             "inputs": {"samples": ["10", 0], "vae": ["6", 0]},
         },
-        # --- ESRGAN 4x upscale then downscale to 2048 ---
-        # Upscale 1024→4096 for sharpening/detail enhancement, then lanczos
-        # downscale to 2048×2048. The ESRGAN pass adds fine detail that survives
-        # the downscale; output is ~5MB vs 24MB at native 4096.
+        # --- ESRGAN 4x upscale then downscale to 2048 for streaming ---
+        # Full 4096 is also saved (imggen_hq prefix) for ComfyUI History access.
+        # Both live in the container tmpfs — never written to disk.
         "13": {
             "class_type": "UpscaleModelLoader",
             "inputs": {"model_name": "4x_NMKD-Siax_200k.pth"},
@@ -215,6 +214,12 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
             "class_type": "ImageUpscaleWithModel",
             "inputs": {"upscale_model": ["13", 0], "image": ["11", 0]},
         },
+        # Full 4096×4096 HQ copy — viewable/downloadable via ComfyUI History tab
+        "16": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["14", 0], "filename_prefix": "imggen_hq"},
+        },
+        # 2048×2048 downscaled version — streamed to OWU as base64
         "15": {
             "class_type": "ImageScale",
             "inputs": {
