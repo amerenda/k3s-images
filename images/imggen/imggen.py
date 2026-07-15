@@ -33,6 +33,11 @@ LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_PROMPT_NAME = os.getenv("LANGFUSE_PROMPT_NAME", "imggen-expansion-system")
 COMFYUI_POLL_INTERVAL = float(os.getenv("COMFYUI_POLL_INTERVAL", "2"))
+
+_LOGGING_MODE = os.getenv("LOGGING_MODE", "none").lower()
+if _LOGGING_MODE not in ("none", "full"):
+    raise RuntimeError(f"LOGGING_MODE must be 'none' or 'full', got {_LOGGING_MODE!r}")
+_LOG_USER_DATA = _LOGGING_MODE == "full"
 COMFYUI_TIMEOUT = float(os.getenv("COMFYUI_TIMEOUT", "300"))
 
 _sessions: dict[str, dict] = {}
@@ -288,7 +293,8 @@ async def _stream_generate(user_msg: str, conv_id: str, session: dict):
 
     try:
         positive, negative, seed = await expand_prompt(user_msg, prev_context, system_prompt)
-        log.info("Expanded prompt seed=%d: %s...", seed, positive[:80])
+        if _LOG_USER_DATA:
+            log.info("Expanded prompt seed=%d: %s...", seed, positive[:80])
         yield _sse_chunk(f"\n*Generating image (seed `{seed}`)...*", chunk_id)
     except Exception as exc:
         log.error("Prompt expansion failed: %s — using raw description", exc)
@@ -391,7 +397,10 @@ async def chat_completions(request: Request):
     if not user_msg:
         raise HTTPException(400, "No user message found")
 
-    log.info("conv=%s: %s", conv_id, user_msg[:100])
+    if _LOG_USER_DATA:
+        log.info("conv=%s: %s", conv_id, user_msg[:100])
+    else:
+        log.info("conv=%s: [redacted — LOGGING_MODE=none]", conv_id)
 
     if body.get("stream", False):
         return StreamingResponse(
@@ -412,7 +421,8 @@ async def chat_completions(request: Request):
 
     try:
         positive, negative, seed = await expand_prompt(user_msg, prev_context, system_prompt)
-        log.info("Expanded prompt seed=%d: %s...", seed, positive[:80])
+        if _LOG_USER_DATA:
+            log.info("Expanded prompt seed=%d: %s...", seed, positive[:80])
     except Exception as exc:
         log.error("Prompt expansion failed: %s — using raw description", exc)
         positive = user_msg
