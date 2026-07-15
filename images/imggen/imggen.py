@@ -194,7 +194,7 @@ def build_workflow(positive: str, negative: str, seed: int, width: int = 1024, h
                 "seed": seed,
                 "steps": 30,
                 "cfg": 1.0,
-                "sampler_name": "dpm_2m",
+                "sampler_name": "dpmpp_2m",
                 "scheduler": "karras",
                 "denoise": 1.0,
             },
