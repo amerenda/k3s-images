@@ -2,14 +2,17 @@
 
 Receives OpenAI chat completions requests, expands the user prompt via
 qwen3:14b on archlinux, generates an image via ComfyUI on murderbot,
-and returns the image as a base64 data URI embedded in markdown.
+and returns a URL to the generated image (served from in-memory cache).
+
+Images are served via GET /image/<uuid> and expire after IMAGE_TTL_SECONDS.
+No base64 data URIs are embedded in responses — this keeps OWU's markdown
+renderer fast and avoids storing MB-sized payloads in the chat database.
 
 Supports both streaming (SSE) and non-streaming responses. OWU and most
 clients send stream=true; this service sends progress chunks to keep the
 connection alive during the ~90s generation time.
 """
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -20,7 +23,7 @@ import uuid
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -33,6 +36,8 @@ LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_PROMPT_NAME = os.getenv("LANGFUSE_PROMPT_NAME", "imggen-expansion-system")
 COMFYUI_POLL_INTERVAL = float(os.getenv("COMFYUI_POLL_INTERVAL", "2"))
+IMAGE_TTL_SECONDS = float(os.getenv("IMAGE_TTL_SECONDS", "1800"))
+IMAGE_BASE_URL = os.getenv("IMAGE_BASE_URL", "https://imggen.amer.dev")
 
 _LOGGING_MODE = os.getenv("LOGGING_MODE", "none").lower()
 if _LOGGING_MODE not in ("none", "full"):
@@ -42,9 +47,27 @@ COMFYUI_TIMEOUT = float(os.getenv("COMFYUI_TIMEOUT", "300"))
 
 _sessions: dict[str, dict] = {}
 _system_prompt_cache: str | None = None
+# In-memory image store: image_id → (png_bytes, expires_at)
+_images: dict[str, tuple[bytes, float]] = {}
 
 app = FastAPI(title="imggen")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+def _store_image(image_bytes: bytes) -> str:
+    image_id = uuid.uuid4().hex
+    _images[image_id] = (image_bytes, time.time() + IMAGE_TTL_SECONDS)
+    _evict_expired_images()
+    return image_id
+
+
+def _evict_expired_images():
+    now = time.time()
+    expired = [k for k, (_, exp) in _images.items() if exp < now]
+    for k in expired:
+        del _images[k]
+    if expired:
+        log.info("Evicted %d expired images", len(expired))
 
 FALLBACK_SYSTEM_PROMPT = (
     "You are a FLUX image generation prompt engineer specializing in photorealistic human "
@@ -343,18 +366,16 @@ async def _stream_generate(user_msg: str, conv_id: str, session: dict):
 
     _sessions[conv_id] = {"positive": positive, "negative": negative, "seed": seed}
 
-    b64 = base64.b64encode(image_bytes).decode()
+    image_id = _store_image(image_bytes)
+    image_url = f"{IMAGE_BASE_URL}/image/{image_id}"
+    log.info("Image stored: %s (%d bytes, expires in %ds)", image_id, len(image_bytes), int(IMAGE_TTL_SECONDS))
+
     content = (
-        f"\n\n![generated image](data:image/png;base64,{b64})\n\n"
+        f"\n\n![generated image]({image_url})\n\n"
         f"**Seed:** `{seed}`  \n"
         f"**Prompt:** {positive[:300]}{'…' if len(positive) > 300 else ''}"
     )
-
-    # Send in chunks to avoid buffering the full 2MB base64 string at once
-    chunk_size = 8192
-    for i in range(0, len(content), chunk_size):
-        yield _sse_chunk(content[i:i + chunk_size], chunk_id)
-
+    yield _sse_chunk(content, chunk_id)
     yield _sse_chunk("", chunk_id, finish_reason="stop")
     yield "data: [DONE]\n\n"
 
@@ -362,6 +383,21 @@ async def _stream_generate(user_msg: str, conv_id: str, session: dict):
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "imggen"}
+
+
+@app.get("/image/{image_id}")
+async def serve_image(image_id: str):
+    _evict_expired_images()
+    entry = _images.get(image_id)
+    if not entry:
+        raise HTTPException(404, "Image not found or expired")
+    image_bytes, expires_at = entry
+    ttl = max(0, int(expires_at - time.time()))
+    return Response(
+        content=image_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": f"private, max-age={ttl}"},
+    )
 
 
 @app.get("/status", response_class=HTMLResponse)
@@ -462,9 +498,10 @@ async def chat_completions(request: Request):
     image_bytes = await generate_image(positive, negative, seed)
     _sessions[conv_id] = {"positive": positive, "negative": negative, "seed": seed}
 
-    b64 = base64.b64encode(image_bytes).decode()
+    image_id = _store_image(image_bytes)
+    image_url = f"{IMAGE_BASE_URL}/image/{image_id}"
     content = (
-        f"![generated image](data:image/png;base64,{b64})\n\n"
+        f"![generated image]({image_url})\n\n"
         f"**Seed:** `{seed}`  \n"
         f"**Prompt:** {positive[:300]}{'…' if len(positive) > 300 else ''}"
     )
