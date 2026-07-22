@@ -4,6 +4,17 @@
 # patches below are easy to review/re-apply and the build doesn't depend on
 # github.com/koreader being reachable from the arc-runner.
 #
+# IMPORTANT: base image is the official prebuilt openresty/openresty, not
+# upstream's own approach of compiling OpenResty from source on top of
+# debian:trixie-slim. The from-source build (nginx + LuaJIT + PCRE + OpenSSL,
+# ./configure && make && make install) is the dominant cost of this image
+# and took ~50 minutes per multi-arch (amd64+arm64) build in CI — most of
+# that under QEMU emulation for the arm64 leg, which is much slower per CPU
+# cycle than native compilation. openresty/openresty ships prebuilt,
+# real multi-arch (amd64+arm64) manifests via apt, so this cuts the build
+# down to just the gin/luarocks steps. Do not switch back to compiling
+# OpenResty from source without a real reason.
+#
 # Patches applied vs. upstream, both in ./src:
 #   - db/redis.lua: production block reads REDIS_HOST/REDIS_PORT/REDIS_DB/
 #     REDIS_PASSWORD from the environment (falls back to upstream's hardcoded
@@ -11,32 +22,28 @@
 #     point at an external Redis instead of the one upstream bundles.
 #   - This Dockerfile drops the bundled `redis-server` package and its runit
 #     service (see below) — nothing in this deployment should run a second,
-#     unused Redis inside the pod.
-FROM debian:trixie-slim
+#     unused Redis in the pod.
+#
+# config/nginx.conf also whitelists REDIS_HOST/REDIS_PORT/REDIS_DB/
+# REDIS_PASSWORD via the `env` directive — nginx strips all but explicitly
+# whitelisted vars from worker process environments, so without this the
+# Lua code's os.getenv() calls silently see nothing.
+FROM openresty/openresty:1.31.1.1-bookworm
 
-# install system dependencies (upstream also installs redis-server here;
-# dropped — this image talks to an external Redis, see db/redis.lua)
+# install system dependencies (upstream also installs redis-server and a
+# pile of nginx/openresty build deps here; dropped both — this image talks
+# to an external Redis, see db/redis.lua, and OpenResty is prebuilt above).
+# build-essential + libssl-dev are still needed: luasec (installed below)
+# compiles a C extension against OpenSSL.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates curl \
-        libreadline-dev libncurses5-dev libpcre2-dev libssl-dev \
-        build-essential git openssl \
+        build-essential git openssl libssl-dev \
         luarocks unzip \
-        zlib1g-dev \
         runit \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ARG OPENRESTY_VER=1.29.2.3
-ENV PATH=/opt/openresty/nginx/sbin:$PATH
-
 WORKDIR /app
-RUN curl -fL "https://openresty.org/download/openresty-${OPENRESTY_VER}.tar.gz" -o openresty-${OPENRESTY_VER}.tar.gz \
-        && tar zxvf openresty-${OPENRESTY_VER}.tar.gz \
-        && cd openresty-${OPENRESTY_VER} \
-            && ./configure --prefix=/opt/openresty \
-            && make && make install \
-        && cd .. \
-            && rm -rf openresty-${OPENRESTY_VER} openresty-${OPENRESTY_VER}.tar.gz /tmp/*
 
 RUN mkdir -p /etc/nginx/ssl \
     && openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
