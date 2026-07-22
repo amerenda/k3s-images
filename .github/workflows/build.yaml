@@ -37,6 +37,11 @@ jobs:
             platforms: linux/amd64
             tags: |
               amerenda/imggen:latest
+          - dir: libsync-server
+            platforms: linux/amd64,linux/arm64
+            tags: |
+              amerenda/libsync-server:latest
+              amerenda/libsync-server:597e0648
 
     steps:
       - name: Checkout
